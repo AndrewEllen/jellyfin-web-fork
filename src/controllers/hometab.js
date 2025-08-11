@@ -44,10 +44,8 @@ class HomeTab {
 
                 // 2) Remove ONLY the "My Media" rail
                 try {
-                    // Localized text for the header
                     const myMediaTitle = (globalize.translate('HeaderMyMedia') || 'My Media').toLowerCase();
 
-                    // Remove section by matching its header text
                     sectionsEl.querySelectorAll('.sectionTitle, .sectionTitle-cards, h2').forEach(h => {
                         const t = (h.textContent || '').trim().toLowerCase();
                         if (t === myMediaTitle) {
@@ -56,7 +54,6 @@ class HomeTab {
                         }
                     });
 
-                    // Defensive removals by known markers
                     sectionsEl.querySelectorAll(
                         '[data-section="smalllibrarytiles"],'
                         + '.section-smalllibrarytiles,'
@@ -71,6 +68,14 @@ class HomeTab {
                     await renderClientRecommendations(sectionsEl, apiClient, user);
                 } catch (e) {
                     console.warn('client recs failed', e);
+                }
+
+                // 4) Wait for custom scrollers to upgrade, then reorder (prevents addScrollEventListener crash)
+                try {
+                    await waitForScrollerUpgrade(sectionsEl);
+                    reorderHomeSections(sectionsEl);
+                } catch (e) {
+                    console.warn('reorder failed', e);
                 }
             })
             .then(() => {
@@ -109,6 +114,89 @@ function onHomeScreenSettingsChanged() {
     this.sectionsRendered = false;
     if (!this.paused) {
         this.onResume({ refresh: true });
+    }
+}
+
+/* ------------ helpers: wait + ordering (no DOM structure changes) ------------ */
+
+// Wait until all scrollers inside root are upgraded (have the methods scrollbuttons need)
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+async function waitForScrollerUpgrade(root, timeoutMs = 2000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const scrollers = root.querySelectorAll('emby-scroller,[is="emby-scroller"]');
+        if (scrollers.length === 0) return; // nothing to wait for
+        const ready = [...scrollers].every(s =>
+            typeof s.addScrollEventListener === 'function'
+            && typeof s.getScrollSlider === 'function'
+        );
+        if (ready) return;
+        // give the WebComponents polyfill time to upgrade, and avoid thrashing
+        await sleep(50);
+    }
+    // If we time out, proceed anyway rather than block the page
+}
+
+function normalizeTitle(node) {
+    return (node?.textContent || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function findSectionByHeader(root, matchFn) {
+    const headers = root.querySelectorAll('.sectionTitle, .sectionTitle-cards, h2');
+    for (const h of headers) {
+        const t = normalizeTitle(h);
+        if (matchFn(t)) {
+            return h.closest('.verticalSection') || h.closest('.homeSection') || h.closest('.section');
+        }
+    }
+    return null;
+}
+
+function reorderHomeSections(root) {
+    // Desired order (top → down):
+    // 1 Continue Watching
+    // 2 Next Up
+    // 3 Recommended
+    // 4 Recommended Movies
+    // 5 Recently Added in Movies
+    // 6 Recommended Shows  (aka Recommended TV)
+    // 7 Recently Added in Shows
+    // 8 Recently Added in Music
+
+    const containsRecent = t => t.includes('recent') || t.includes('latest');
+
+    const secContinue = findSectionByHeader(root, t => t.includes('continue watching'));
+    const secNextUp = findSectionByHeader(root, t => t.includes('next up'));
+
+    const secRec = root.querySelector('[data-section="client-recs-combined"]')?.closest('.verticalSection, .homeSection, .section');
+    const secRecMovies = root.querySelector('[data-section="client-recs-movies"]')?.closest('.verticalSection, .homeSection, .section');
+    const secRecShows = root.querySelector('[data-section="client-recs-series"]')?.closest('.verticalSection, .homeSection, .section');
+
+    const secRecentMovies = findSectionByHeader(root, t => containsRecent(t) && t.includes('movie'));
+    const secRecentShows = findSectionByHeader(root, t => containsRecent(t) && (t.includes('tv') || t.includes('show') || t.includes('shows') || t.includes('series')));
+    const secRecentMusic = findSectionByHeader(root, t => containsRecent(t) && t.includes('music'));
+
+    const order = [
+        secContinue,
+        secNextUp,
+        secRec,
+        secRecMovies,
+        secRecentMovies,
+        secRecShows,
+        secRecentShows,
+        secRecentMusic
+    ].filter(Boolean);
+
+    // Move to top in exact order without touching internals
+    let anchor = root.firstElementChild;
+    for (let i = order.length - 1; i >= 0; i--) {
+        const sec = order[i];
+        if (!sec || sec.parentElement !== root) continue;
+        root.insertBefore(sec, anchor);
+        anchor = sec;
     }
 }
 
