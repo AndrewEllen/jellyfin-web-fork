@@ -102,24 +102,24 @@ class HomeView extends TabbedView {
         switch (index) {
             case 0:
             case 1:
-            // For Home and Favorites we defer to the existing controllers.
-            {
-                let depends;
-                depends = index === 0 ? 'hometab' : 'favorites';
-                return import(/* webpackChunkName: "[request]" */ `../controllers/${depends}`).then(({ default: ControllerFactory }) => {
-                    let controller = instance.tabControllers[index];
-                    if (!controller) {
-                        controller = new ControllerFactory(
-                            instance.view.querySelector(
-                                `.tabContent[data-index='${index}']`
-                            ),
-                            instance.params
-                        );
-                        instance.tabControllers[index] = controller;
-                    }
-                    return controller;
-                });
-            }
+                // For Home and Favorites we defer to the existing controllers.
+                {
+                    let depends;
+                    depends = index === 0 ? 'hometab' : 'favorites';
+                    return import(/* webpackChunkName: "[request]" */ `../controllers/${depends}`).then(({ default: ControllerFactory }) => {
+                        let controller = instance.tabControllers[index];
+                        if (!controller) {
+                            controller = new ControllerFactory(
+                                instance.view.querySelector(
+                                    `.tabContent[data-index='${index}']`
+                                ),
+                                instance.params
+                            );
+                            instance.tabControllers[index] = controller;
+                        }
+                        return controller;
+                    });
+                }
             case 2:
                 return Promise.resolve({
                     onResume() {
@@ -132,6 +132,8 @@ class HomeView extends TabbedView {
             case 3:
                 return Promise.resolve({
                     onResume() {
+                        // TV shows live under the 'tv' route rather than 'shows'.
+                        // Using the correct path avoids navigation errors.
                         appRouter.show('tv');
                     },
                     onPause() {},
